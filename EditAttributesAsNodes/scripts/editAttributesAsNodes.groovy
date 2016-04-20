@@ -26,9 +26,13 @@
             // If an attribute has no value node there is a null error.
             // If an comma-separated attribute is added with the attributes picklist, it has no value and if then we open the picklist for this added attribute, it shows values as comma-separated value (text separated with commas)... I am not sure this can be fixed as there is no really way of knowing this attribute is comma separated by checking data from this node only, I should check globally in the other attributes with the same name in the map if this value is a commaseparated list, then I would need to set maybe a comma as the value in the inner attributes to indicate it is a comma-separated list but it is empty. So it is not so much a bug but it would be better to provide expected behavior with this attribute. 
         // Todo
+            // Maybe see if I can put a + and - icon to the node, telling this way their state if they are opened or closed, depending on their state.
+            // FF20160408235157 The attribute picklist value delete should be also done when closing the rootnode, but now it is done only for the value node
+            // Try to use the function node.attributes.containsKey() to check if an attribute exists instead of looping... change the attribute looping code.
+            // Try to use code like node['tags'] to get the value of an attribute instead of the .get(index) function...so that I may get the value from the name.
             // FR20160331111321 Maybe this code for the comma-separated list should be in a function for the commaseparated list functions, and called here by passing the node and setting the context
-            // FR20160401230009 If a value is deleted in a (single) value picklist, then it should be deleted everywhere in the map 
-            // If a value is deleted in a (comma-separated) value picklist, then it should be deleted everywhere in the map
+            // FR20160405103753 If a value is deleted in a (comma-separated) value picklist, then it should be deleted everywhere in the map
+                // The values deleted should be deleted from comma-separated values
             // Now that the setcontext function works and I can operate on surrounding nodes, remove the code that 'closes' the comma separated (that is in the attributesdeactivate I think) and simply call the commaseparateddeactivate from the attributesdeactivate
             // Maybe in the multi-select picklist, if the user holds ctrl and click several nodes to select multiple nodes, then pressing the hotkey would select/unselect these nodes depending if they are checked or unchecked.
             // Maybe do a date picklist to select dates and times, a tree by year > month > day > hour > minutes
@@ -36,6 +40,12 @@
         // Git
             // freeplane:/%20/D:/Work/MindMaps/Commands.mm#ID_262304796
         // Version history
+            // 2016-04-08_11.22.09
+                // Added: FR20160401230009 If a value is deleted in a (single) value picklist, then it should be deleted everywhere in the map 
+            // 2016-04-05_10.13.09
+                // Added: Icon for the <comma-separated list> node
+                // Fixed: Bug20160405102428 When adding a value to the comma-separated list value picklist, and then closing the picklist, the value is added to the comma-separated list, but then reopening the comma-separated picklist won't show this newly added value although it is in the list of values as nodes for the comma-separated. It should be added.
+                // Fixed: Bug20160404235643 Opening the value picklist should add also the current value of the attribute value to the picklist if it is not there yet. 
             // 2016-04-03_03.13.48
                 // Fixed: If have no attributes in the node, then I add 1, and then again I open the attributes and I delete it from the attributes picklist to remove it from the inner node, then when I deactivate the node (close the <attributes> I have an index error: Negative array index -1 too large for array size()) 
                 // Done: Several small changes like removing debugging code and adding comments. 
@@ -245,7 +255,7 @@
                                 // VALUE AND VALUE_COMMA_SEPARATED
                                     else if (grandParentText == ATTRIBUTES_TEXT) {
                                         // Get the inner attribute value from the rootNode because if after the comma separated list modification, if there is only 1 item in the list, it will be considered a VALUE and not at VALUE_COMMA_SEPARATED_LIST, so check the inner attribute to be sure what kind of node it is
-                                            def innerAttributeValue = getInnerAttributeValue(parent.parent.parent, parentText)
+                                            def innerAttributeValue = getInnerAttributeValue(pNode.parent.parent.parent, parentText)
                                         if (innerAttributeValue.toString().contains(','))
                                             type = VALUE_COMMA_SEPARATED
                                         else
@@ -443,11 +453,18 @@
                             }
                     }
                 def nodeDeactivate() { // Hide the attributes as nodes and set the inner attributes to the values set in the nodes
-                     // Deactivate the attributes
-                        setContext(node.children[node.children.size() - 1]) // Impersonate as like to be the ATTRIBUTES_TEXT node
+                    // Deactivate all the attributes
+                        // FF20160408235157 
+                        //node.children[node.children.size() - 1].children.each {
+                            //setContext(it.children[0])
+                            //valueDeactivate(it.children[0])
+                            //}
+
+                    // Deactivate the attributes
+                        setContext(node.children[lastChildIndex]) // Impersonate as like to be the ATTRIBUTES_TEXT node
                         attributesDeactivate(node.children[node.children.size() - 1])
 
-                     // Delete the ATTRIBUTES_TEXT node
+                    // Delete the ATTRIBUTES_TEXT node
                         setContext(node) // Switch back "to be" the rootNode
                         node.children[lastChildIndex].delete()
                      }
@@ -641,9 +658,12 @@
                 def valueActivate() { // Gets all the possible values for that attribute in the map and shows them uniquely and sorted in the PICKLIST_TEXT
                     pickListNode = node.createChild()
                     pickListNode.text = PICKLIST_TEXT
+                    def attributeValues = []
+                    // Add the current attribute value to the list, because it may be a new value that the user just added so it should also be present in the list
+                        // Bug20160404235643 
+                        attributeValues.add(node.text.toString().trim())
                     // Add values to the PICKLIST
                         def attributeNameToSearch = parent.text
-                        def attributeValues = []
                         // Loop all nodes in the map
                             c.findAllDepthFirst().each { n ->
                                 // Loop the children of the current node
@@ -661,8 +681,10 @@
                                 }
                         // Show the attributes collected as new nodes
                             attributeValues.sort(comparator).unique().each { 
-                                newValueNode = pickListNode.createChild()
-                                newValueNode.text = it
+                                if (it != '') {
+                                    newValueNode = pickListNode.createChild()
+                                    newValueNode.text = it
+                                    }
                                 }
                         // Check the value in the picklist that correspond to the current value and set the other as unchecked
                             node.children[lastChildIndex].children.each { // Loop the PICKLIST values
@@ -673,50 +695,32 @@
                                         it.icons.addIcon('unchecked')
                                 }
                         }
-                def valueDeactivate() { // Get the first checked value in the picklist opened and set it as the value and close the picklist
-                    def checkedText = ''
-                    // This code is not necessary because now the attribute value is set at the same time the picklist value is checked, if I want to disable the setting at check then disable it and uncomment this code to set the value from the attribute value
-                        // Loop the children of the PICKLIST
-                            // node.children[0].children.each {
-                            //     if (it.icons[0] == 'checked')
-                            //         checkedText = it.text 
-                            //         return true; // Break from the each closure
-                            //     }
-                        //node.text = checkedText
-                    // Set to blank the attribute's value everywhere in the map if they are not anymore in the picklist
+                def valueDeactivate(pNode) { // Get the first checked value in the picklist opened and set it as the value and close the picklist
+                    // Delete attribute value: Set to blank the attribute's value everywhere in the map if they are not anymore in the picklist
                         // FR20160401230009 
-                        // Attributes deleted from the picklist
-                        // Get list of all possible values for this attribute in the map
-                        // Get list of the values for this attribute in the picklist
-                        // Compare, get the list of the attributes no in the picklist
-                        // Set to blank in the map everywhere where this attribute is set to this value
-                        // ATTENTION: Don't use this code below it is for deleting attributes, but take elements from it then delete it
-                       /* // Loop all nodes in the map */
-                       /*     c.findAllDepthFirst().each { n -> */
-                       /*     // If the node has attributes */
-                       /*          if (!n.attributes.empty) { */
-                       /*              // Loop each attributes in the current node of the map */
-                       /*                  n.attributes.names.eachWithIndex { attributeName, attributeIndex -> */
-                       /*                      attributeValue = n.attributes.get(attributeIndex) */
-                       /*                      // For each of the attribute check if it's value is in the PICKLIST, if not then delete it from the current node */
-                       /*                          found = false */
-                       /*                          pNode.children[lastChildIndex].children.each { // Loop the PICKLIST */
-                       /*                              // d(attributeName + ' = ' + it.text) */
-                       /*                              if (attributeName == node.text && attributeValue == it.text) */
-                       /*                                  found = true */
-                       /*                              } */
-                       /*                          // If the attribute was not found in the PICKLIST, delete it */
-                       /*                              if (!found) { */
-                       /*                                  //d('delete ' + attributeName) */
-                       /*                                  // Tofix */
-                       /*                                  n.attributes. */
-                       /*                                  //n.attributes.removeAll(attributeName) */
-                       /*                                  } */
-                       /*                      } */
-                       /*              } */
-                       /*      } */
+                        c.findAllDepthFirst().each { n ->
+                           // If the node has attributes
+                               if (!n.attributes.empty) { 
+                                    // Loop each attributes in the current node of the map
+                                        n.attributes.names.eachWithIndex { attributeName, attributeIndex ->
+                                            attributeValue = n.attributes.get(attributeIndex)
+                                            // If the inner attribute is equal to the current node attribute
+                                                if (attributeName == parent.text) {
+                                                    // Loop the picklist and check if the value is there, if not then set it to blank 
+                                                        def found = false
+                                                        pNode.children[lastChildIndex].children.each {
+                                                            if (it.text == attributeValue)
+                                                                    found = true
+                                                            }
+                                                        // If the attribute value is not found in the picklist then set it to blank
+                                                            if (!found)
+                                                                n[attributeName] = '' 
+                                                    }
+                                           }
+                                }
+                            }
                     // Remove the PICKLIST
-                        node.children[0].delete()
+                        pNode.children[0].delete()
                     }
             // PICKLIST_VALUE
                 def pickListValueActivate() { 
@@ -735,6 +739,7 @@
                 def valueCommaSeparatedActivate() { // Split the comma-separated list into child nodes of the COMMA_SEPARATED_LIST_TEXT node
                     commaSeparatedListNode = node.createChild()
                     commaSeparatedListNode.text = COMMA_SEPARATED_LIST_TEXT
+                    commaSeparatedListNode.icons.addIcon(LIST_ICON)
                     // Split to child nodes (as items of the list)
                         commaSeparatedListValues = node.text.tokenize(',')*.trim().sort(comparator).unique() // Items must be trimmed before to be sorted or the sort will be broken
                         commaSeparatedListValues.each {
@@ -761,9 +766,11 @@
                     pickListNode = node.createChild()
                     lastChildIndex++ // It has to be incremented because we add a node 
                     pickListNode.text = PICKLIST_TEXT
+                    def attributeValues = []
+                    // Initialize the list of attributeValues for the picklist with at least the values from the comma-separated list
+                        attributeValues = parent.text.tokenize(',')*.trim()
                     // Add values to the PICKLIST
                         def attributeNameToSearch = parent.parent.text
-                        def attributeValues = []
                         // Loop all nodes in the map
                             c.findAllDepthFirst().each { n ->
                                 // Loop the children of the current node
@@ -807,6 +814,48 @@
                                 }
                     }
                 def commaSeparatedListDeactivate() { // Delete the PICKLIST
+                    // Delete comma-separated picklist values from the map
+                        // FR20160405103753 
+//                        // Loop the attributes in the map
+//                            c.findAllDepthFirst().each { n ->
+//                            // If the nodes has attributes
+//                               if (!n.attributes.empty) { 
+//                                // Loop each attributes in the current node of the map
+//                                    n.attributes.names.eachWithIndex { attributeName, attributeIndex ->
+//                                        attributeValue = n.attributes.get(attributeIndex)
+//                                        // If attribute equals to current attribute 
+//                                            if (attributeName == parent.parent.text) {
+//                                            // Split the comma-separated into values
+//                                                commaSeparatedSplittedValues = attributeValue.tokenize(',')*.trim()
+//                                                // For each splitted value
+//                                                    commaSeparatedSplittedValues.each {
+//                                                            splittedValue = it
+//                                                            def found = false
+//                                                            // Check if it is in the picklist
+//                                                                node.children[node.children.size() - 1].children.each {
+//                                                                    d('compare: ' + splittedValue + ' == ' + it.text)
+//                                                                    if (splittedValue == it.text) {
+//                                                                        d('found: ' + splittedValue)
+//                                                                        found = true
+//                                                                        }
+//                                                                    }
+//                                                            // If the value is not in the picklist 
+//                                                                if (!found) {
+//                                                                    d('not found: ' + splittedValue)
+//                                                                    // Replace it with nothing in the comma-separated value
+//                                                                        //n[attributeName] = n[attributeName].replace(splittedValue, '')
+//                                                                    // Replace it also in the comma-separated value
+//                                                                        // parent.text = parent.text.replace(splittedValue + ', ', '')
+//                                                                        // parent.text = parent.text.replace(', ' + splittedValue, '')
+//                                                                        //parent.text = parent.text.replace(splittedValue, '')
+//                                                                    }
+//                                                        }
+//                                               }
+//                                       }
+//                                   }
+//                                }
+//
+                           
                     if (lastChildText == PICKLIST_TEXT) {
                         node.children[lastChildIndex].delete()
                         lastChildIndex-- // It has to be decremented because we remove a node (but in practice it has no effect)
@@ -878,7 +927,7 @@
                             else if (type == VALUE && state == DEACTIVATED)
                                 valueActivate() // Get all the possible values of that attribute in the map, check all the other nodes and their values and get a unique list
                             else if (type == VALUE && state == ACTIVATED)
-                                valueDeactivate() // Get the first checked value in the picklist opened and set it as the value and close the picklist
+                                valueDeactivate(node) // Get the first checked value in the picklist opened and set it as the value and close the picklist
                             // PICKLIST (NO ACTION)
                                 // PICKLIST_VALUE (NO DEACTIVATE because one value has to be checked)
                                     else if (type == PICKLIST_VALUE && state == DEACTIVATED)
